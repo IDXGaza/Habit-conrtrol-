@@ -34,7 +34,7 @@ jobs:
       - name: Decode Debug Keystore
         run: |
           if [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
+            tr -d '\r\n' < debug.keystore.base64 | base64 -d > debug.keystore || true
           fi
 
       - name: Build Debug APK

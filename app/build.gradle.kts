@@ -32,21 +32,24 @@ android {
       keyAlias = "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
-    create("debugConfig") {
+    getByName("debug") {
       val ksFile = file("${rootDir}/debug.keystore")
       if (!ksFile.exists()) {
         val b64File = file("${rootDir}/debug.keystore.base64")
         if (b64File.exists()) {
           try {
-            val bytes = Base64.getDecoder().decode(b64File.readText().trim())
+            val cleanB64 = b64File.readText().replace("\\s".toRegex(), "")
+            val bytes = Base64.getDecoder().decode(cleanB64)
             ksFile.writeBytes(bytes)
           } catch (_: Exception) {}
         }
       }
-      storeFile = if (ksFile.exists()) ksFile else file("${System.getProperty("user.home")}/.android/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
+      if (ksFile.exists()) {
+        storeFile = ksFile
+        storePassword = "android"
+        keyAlias = "androiddebugkey"
+        keyPassword = "android"
+      }
     }
   }
 
@@ -57,7 +60,9 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    debug {
+      signingConfig = signingConfigs.getByName("debug")
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
