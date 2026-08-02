@@ -1,0 +1,6 @@
+{
+  "name": "Habit Control",
+  "description": "An app to control bad habits by requiring tasks to open distracting apps.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

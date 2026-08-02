@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Habit Control</string>
+    <string name="accessibility_service_description">This service is used to detect when a blocked app is opened so it can be intercepted.</string>
+</resources>
