@@ -38,8 +38,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _installedApps = MutableStateFlow<List<AppInfo>>(emptyList())
     val installedApps: StateFlow<List<AppInfo>> = _installedApps
 
+    private val deviceLockManager = com.example.data.DeviceLockManager(application)
+    private val _deviceLockState = MutableStateFlow(deviceLockManager.getSettings())
+    val deviceLockState: StateFlow<com.example.data.DeviceLockState> = _deviceLockState
+
     init {
         loadInstalledApps()
+    }
+
+    fun refreshDeviceLockState() {
+        _deviceLockState.value = deviceLockManager.getSettings()
+    }
+
+    fun updateDeviceLockMaster(enabled: Boolean) {
+        deviceLockManager.updateMasterEnabled(enabled)
+        refreshDeviceLockState()
+    }
+
+    fun updateDeviceLockDaily(enabled: Boolean, limitMinutes: Int) {
+        deviceLockManager.updateDailyLimit(enabled, limitMinutes)
+        refreshDeviceLockState()
+    }
+
+    fun updateDeviceLockSchedule(enabled: Boolean, startH: Int, startM: Int, endH: Int, endM: Int) {
+        deviceLockManager.updateSchedule(enabled, startH, startM, endH, endM)
+        refreshDeviceLockState()
+    }
+
+    fun updateDeviceLockPeriodic(enabled: Boolean, usageMins: Int, restMins: Int) {
+        deviceLockManager.updatePeriodic(enabled, usageMins, restMins)
+        refreshDeviceLockState()
+    }
+
+    fun saveDeviceLockMedia(uri: android.net.Uri, isAudio: Boolean) {
+        deviceLockManager.saveMediaFromUri(uri, isAudio)
+        refreshDeviceLockState()
+    }
+
+    fun clearDeviceLockMedia(isAudio: Boolean) {
+        deviceLockManager.clearMedia(isAudio)
+        refreshDeviceLockState()
     }
 
     private fun loadInstalledApps() {
@@ -123,7 +161,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 textUtils.setString(settingValue)
                 while (textUtils.hasNext()) {
                     val accessibilityService = textUtils.next()
-                    if (accessibilityService.equals("${context.packageName}/${service.name}", ignoreCase = true)) {
+                    if (accessibilityService.contains(context.packageName, ignoreCase = true) &&
+                        accessibilityService.contains(service.simpleName, ignoreCase = true)) {
                         return true
                     }
                 }

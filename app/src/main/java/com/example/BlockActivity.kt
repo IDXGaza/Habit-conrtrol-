@@ -42,12 +42,35 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import android.util.Base64
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
+import java.util.Locale
+
 class BlockActivity : ComponentActivity() {
     private var currentIntentState by mutableStateOf<Intent?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
+        window.addFlags(
+            android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+            android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        )
+
         currentIntentState = intent
 
         setContent {
@@ -57,41 +80,58 @@ class BlockActivity : ComponentActivity() {
             val challengeParam = currentIntent.getStringExtra("CHALLENGE_PARAM") ?: ""
             val allowedTimeMinutes = currentIntent.getIntExtra("ALLOWED_TIME_MINUTES", 5)
 
+            val lockReason = currentIntent.getStringExtra("LOCK_REASON") ?: "قفل الجوال بالكامل"
+            val restExpiry = currentIntent.getLongExtra("REST_EXPIRY", 0L)
+            val imagePath = currentIntent.getStringExtra("IMAGE_PATH")
+            val audioPath = currentIntent.getStringExtra("AUDIO_PATH")
+            val isPreview = currentIntent.getBooleanExtra("IS_PREVIEW", false)
+
             MyApplicationTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    BlockScreen(
-                        packageName = packageName,
-                        challengeType = challengeType,
-                        challengeParam = challengeParam,
-                        onUnlock = {
-                            AppBlockerService.unlockApp(packageName, allowedTimeMinutes * 60 * 1000L)
-                            finish()
-                        },
-                        onGoHome = {
-                            if (packageName == "adult_content_blocked" || packageName.startsWith("website:")) {
-                                AppBlockerService.unlockApp("adult_content_blocked", 20_000L)
-                                if (packageName.startsWith("website:")) {
-                                    AppBlockerService.unlockApp(packageName, 20_000L)
-                                }
-                            }
-                            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                                addCategory(Intent.CATEGORY_HOME)
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            }
-                            startActivity(homeIntent)
-                            finish()
-                        },
-                        onFinish = {
-                            if (packageName == "adult_content_blocked" || packageName.startsWith("website:")) {
-                                AppBlockerService.unlockApp("adult_content_blocked", 20_000L)
-                                if (packageName.startsWith("website:")) {
-                                    AppBlockerService.unlockApp(packageName, 20_000L)
-                                }
-                            }
-                            finish()
-                        },
-                        modifier = Modifier.padding(innerPadding)
+                if (challengeType == "DEVICE_LOCK" || packageName == "device_lock_total") {
+                    DeviceLockFullOverlay(
+                        reason = lockReason,
+                        restExpiry = restExpiry,
+                        imagePath = imagePath,
+                        audioPath = audioPath,
+                        isPreview = isPreview,
+                        onFinish = { finish() }
                     )
+                } else {
+                    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                        BlockScreen(
+                            packageName = packageName,
+                            challengeType = challengeType,
+                            challengeParam = challengeParam,
+                            onUnlock = {
+                                AppBlockerService.unlockApp(packageName, allowedTimeMinutes * 60 * 1000L)
+                                finish()
+                            },
+                            onGoHome = {
+                                if (packageName == "adult_content_blocked" || packageName.startsWith("website:")) {
+                                    AppBlockerService.unlockApp("adult_content_blocked", 20_000L)
+                                    if (packageName.startsWith("website:")) {
+                                        AppBlockerService.unlockApp(packageName, 20_000L)
+                                    }
+                                }
+                                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                    addCategory(Intent.CATEGORY_HOME)
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                startActivity(homeIntent)
+                                finish()
+                            },
+                            onFinish = {
+                                if (packageName == "adult_content_blocked" || packageName.startsWith("website:")) {
+                                    AppBlockerService.unlockApp("adult_content_blocked", 20_000L)
+                                    if (packageName.startsWith("website:")) {
+                                        AppBlockerService.unlockApp(packageName, 20_000L)
+                                    }
+                                }
+                                finish()
+                            },
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    }
                 }
             }
         }
@@ -651,5 +691,241 @@ fun copyUriToCache(context: android.content.Context, uri: Uri): Uri? {
     } catch (e: Exception) {
         e.printStackTrace()
         null
+    }
+}
+
+@Composable
+fun DeviceLockFullOverlay(
+    reason: String,
+    restExpiry: Long,
+    imagePath: String?,
+    audioPath: String?,
+    isPreview: Boolean,
+    onFinish: () -> Unit
+) {
+    val context = LocalContext.current
+    BackHandler { onFinish() }
+
+    // Background Image loading
+    var bgBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(imagePath) {
+        if (!imagePath.isNullOrEmpty()) {
+            val imgFile = java.io.File(imagePath)
+            if (imgFile.exists()) {
+                withContext(Dispatchers.IO) {
+                    try {
+                        bgBitmap = android.graphics.BitmapFactory.decodeFile(imgFile.absolutePath)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+        }
+    }
+
+    // Audio playback in loop
+    DisposableEffect(audioPath) {
+        var mediaPlayer: android.media.MediaPlayer? = null
+        if (!audioPath.isNullOrEmpty()) {
+            val audioFile = java.io.File(audioPath)
+            if (audioFile.exists()) {
+                try {
+                    mediaPlayer = android.media.MediaPlayer().apply {
+                        setDataSource(audioFile.absolutePath)
+                        isLooping = true
+                        prepare()
+                        start()
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+        onDispose {
+            try {
+                mediaPlayer?.stop()
+                mediaPlayer?.release()
+            } catch (_: Exception) {}
+        }
+    }
+
+    // Countdown Timer for Rest Break
+    var remainingSeconds by remember {
+        mutableLongStateOf(
+            if (restExpiry > System.currentTimeMillis()) (restExpiry - System.currentTimeMillis()) / 1000 else 0L
+        )
+    }
+
+    LaunchedEffect(restExpiry) {
+        if (restExpiry > System.currentTimeMillis()) {
+            while (true) {
+                val diff = (restExpiry - System.currentTimeMillis()) / 1000
+                remainingSeconds = maxOf(0L, diff)
+                if (diff <= 0) {
+                    onFinish()
+                    break
+                }
+                delay(1000)
+            }
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 1. Image Background or Dark Fallback
+        if (bgBitmap != null) {
+            Image(
+                bitmap = bgBitmap!!.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF0F172A),
+                                Color(0xFF1E293B),
+                                Color(0xFF020617)
+                            )
+                        )
+                    )
+            )
+        }
+
+        // 2. Dark Overlay Scrim for high contrast legibility
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.65f))
+        )
+
+        // 3. Foreground Content Card
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
+                modifier = Modifier.size(96.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.PhonelinkLock,
+                        contentDescription = null,
+                        modifier = Modifier.size(52.dp),
+                        tint = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "تم قفل الجوال بالكامل",
+                style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
+                color = Color.White,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = reason,
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White.copy(alpha = 0.9f),
+                textAlign = TextAlign.Center
+            )
+
+            if (restExpiry > 0L && remainingSeconds > 0) {
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.White.copy(alpha = 0.15f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "الوقت المتبقي للاستراحة",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Color.White.copy(alpha = 0.8f)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val mins = remainingSeconds / 60
+                        val secs = remainingSeconds % 60
+                        val formattedTime = String.format(Locale.US, "%02d:%02d", mins, secs)
+                        Text(
+                            text = formattedTime,
+                            style = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.Bold),
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(40.dp))
+
+            if (isPreview) {
+                Button(
+                    onClick = onFinish,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier.fillMaxWidth(0.8f)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("إغلاق المعاينة", fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                addCategory(Intent.CATEGORY_HOME)
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(homeIntent)
+                            onFinish()
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Color.White
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.6f))
+                    ) {
+                        Icon(Icons.Default.Home, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("الرئيسية")
+                    }
+
+                    Button(
+                        onClick = {
+                            val dialIntent = Intent(Intent.ACTION_DIAL)
+                            context.startActivity(dialIntent)
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("طوارئ")
+                    }
+                }
+            }
+        }
     }
 }

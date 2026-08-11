@@ -136,18 +136,24 @@ class MainActivity : ComponentActivity() {
                                 NavigationBarItem(
                                     selected = selectedTab == 1,
                                     onClick = { selectedTab = 1 },
-                                    icon = { Icon(Icons.Default.Notifications, contentDescription = null) },
-                                    label = { Text("التذكيرات") }
+                                    icon = { Icon(Icons.Default.PhonelinkLock, contentDescription = null) },
+                                    label = { Text("قفل الجوال") }
                                 )
                                 NavigationBarItem(
                                     selected = selectedTab == 2,
                                     onClick = { selectedTab = 2 },
-                                    icon = { Icon(Icons.Default.Shield, contentDescription = null) },
-                                    label = { Text("درع الأمان") }
+                                    icon = { Icon(Icons.Default.Notifications, contentDescription = null) },
+                                    label = { Text("التذكيرات") }
                                 )
                                 NavigationBarItem(
                                     selected = selectedTab == 3,
                                     onClick = { selectedTab = 3 },
+                                    icon = { Icon(Icons.Default.Shield, contentDescription = null) },
+                                    label = { Text("درع الأمان") }
+                                )
+                                NavigationBarItem(
+                                    selected = selectedTab == 4,
+                                    onClick = { selectedTab = 4 },
                                     icon = { Icon(Icons.Default.Settings, contentDescription = null) },
                                     label = { Text("الحالة") }
                                 )
@@ -171,7 +177,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 }
-                                1 -> {
+                                2 -> {
                                     FloatingActionButton(
                                         onClick = {
                                             notificationToEdit = null
@@ -198,6 +204,74 @@ class MainActivity : ComponentActivity() {
                                 .padding(innerPadding)
                                 .fillMaxSize()
                         ) {
+                            val isAccessibilityActive = viewModel.isAccessibilityServiceEnabled(context, AppBlockerService::class.java)
+                            val isOverlayActive = Settings.canDrawOverlays(context)
+
+                            if ((selectedTab == 0 || selectedTab == 1 || selectedTab == 3) && (!isAccessibilityActive || !isOverlayActive)) {
+                                ElevatedCard(
+                                    colors = CardDefaults.elevatedCardColors(
+                                        containerColor = MaterialTheme.colorScheme.errorContainer
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Warning,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                            Text(
+                                                text = "⚠️ ميزات الحظر والقفل بحاجة لخدمة إمكانية الوصول",
+                                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                        }
+                                        Text(
+                                            text = "الإشعارات تظهر بدون أذونات، ولكن لكي يتم قفل الجوال وحظر التطبيقات والمواقع يجب تفعيل خدمة إمكانية الوصول وإذن الظهور فوق التطبيقات.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            if (!isAccessibilityActive) {
+                                                Button(
+                                                    onClick = {
+                                                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                                ) {
+                                                    Text("تفعيل إمكانية الوصول ⚙️", style = MaterialTheme.typography.labelMedium)
+                                                }
+                                            }
+                                            if (!isOverlayActive) {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        val intent = Intent(
+                                                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                            Uri.parse("package:${context.packageName}")
+                                                        )
+                                                        context.startActivity(intent)
+                                                    }
+                                                ) {
+                                                    Text("إذن الظهور 🪟", style = MaterialTheme.typography.labelMedium)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             // Main Navigation Views
                             when (selectedTab) {
                                 0 -> BlockedAppsTab(
@@ -205,7 +279,8 @@ class MainActivity : ComponentActivity() {
                                     viewModel = viewModel,
                                     onAddClick = { showAppSelector = true }
                                 )
-                                1 -> CustomNotificationsTab(
+                                1 -> DeviceLockTab(viewModel = viewModel)
+                                2 -> CustomNotificationsTab(
                                     notifications = customNotifications,
                                     viewModel = viewModel,
                                     onEdit = { notif ->
@@ -217,8 +292,8 @@ class MainActivity : ComponentActivity() {
                                         showNotificationDialog = true
                                     }
                                 )
-                                2 -> ShieldTab(viewModel = viewModel)
-                                3 -> SettingsAndPermissionsTab(viewModel = viewModel)
+                                3 -> ShieldTab(viewModel = viewModel)
+                                4 -> SettingsAndPermissionsTab(viewModel = viewModel)
                             }
                         }
                     }
@@ -1279,6 +1354,15 @@ fun PermissionsBanner(viewModel: MainViewModel) {
                     ) {
                         Text("تفعيل الخدمة من الإعدادات")
                     }
+                    
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "💡 ملاحظة مهمة (للأندرويد 13+):\nإذا ظهرت لك رسالة \"إعداد مقيّد\" (Restricted setting)، يرجى اتباع الآتي:\n1. افتح إعدادات الهاتف -> التطبيقات -> اختر تطبيق Habit Control.\n2. اضغط على الثلاث نقاط في أعلى الشاشة (⋮).\n3. اختر \"السماح بالإعدادات المقيّدة\" (Allow restricted settings).\n4. ارجع إلى هنا وفعل الخدمة.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
@@ -1763,5 +1847,477 @@ fun copyUriToInternalFile(context: android.content.Context, uri: Uri, prefix: St
     } catch (e: Exception) {
         e.printStackTrace()
         uri.toString()
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DeviceLockTab(viewModel: MainViewModel) {
+    val context = LocalContext.current
+    val deviceLockState by viewModel.deviceLockState.collectAsStateWithLifecycle()
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.saveDeviceLockMedia(it, isAudio = false) }
+    }
+
+    val audioPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.saveDeviceLockMedia(it, isAudio = true) }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.refreshDeviceLockState()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = if (deviceLockState.isMasterEnabled)
+                    MaterialTheme.colorScheme.primaryContainer
+                else
+                    MaterialTheme.colorScheme.surfaceContainer
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (deviceLockState.isMasterEnabled)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.outlineVariant,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.PhonelinkLock,
+                                contentDescription = null,
+                                tint = if (deviceLockState.isMasterEnabled)
+                                    MaterialTheme.colorScheme.onPrimary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Column {
+                        Text(
+                            text = "قفل الجوال بالكامل 🔒",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (deviceLockState.isMasterEnabled) "مُفَعَّل - يتم مراقبة استخدام الجوال وقفله طبقاً للحدود والجداول" else "مُعَطَّل - اضغط للتفعيل الشامل",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Switch(
+                    checked = deviceLockState.isMasterEnabled,
+                    onCheckedChange = { viewModel.updateDeviceLockMaster(it) }
+                )
+            }
+        }
+
+        if (deviceLockState.isMasterEnabled) {
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(Icons.Default.HourglassTop, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text(
+                                text = "حد الاستخدام اليومي للجوال",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                        Switch(
+                            checked = deviceLockState.isDailyLimitEnabled,
+                            onCheckedChange = { enabled ->
+                                viewModel.updateDeviceLockDaily(enabled, deviceLockState.dailyLimitMinutes)
+                            }
+                        )
+                    }
+
+                    if (deviceLockState.isDailyLimitEnabled) {
+                        Text(
+                            text = "الحد المحدد: ${deviceLockState.dailyLimitMinutes / 60} ساعة و ${deviceLockState.dailyLimitMinutes % 60} دقيقة",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        val usedMinutes = deviceLockState.todayUsageSeconds / 60
+                        val progress = (usedMinutes.toFloat() / deviceLockState.dailyLimitMinutes).coerceIn(0f, 1f)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("تم استخدام: $usedMinutes دقيقة اليوم", style = MaterialTheme.typography.labelMedium)
+                                Text("${(progress * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
+                            }
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))
+                            )
+                        }
+
+                        Text("اختر الحد اليومي:", style = MaterialTheme.typography.labelLarge)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            val options = listOf(30 to "30 د", 60 to "ساعة", 120 to "ساعتان", 180 to "3 ساعات", 240 to "4 ساعات")
+                            options.forEach { (mins, label) ->
+                                FilterChip(
+                                    selected = deviceLockState.dailyLimitMinutes == mins,
+                                    onClick = { viewModel.updateDeviceLockDaily(true, mins) },
+                                    label = { Text(label) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(Icons.Default.Timer, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text(
+                                text = "القفل الدوري (فترات الراحة)",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                        Switch(
+                            checked = deviceLockState.isPeriodicEnabled,
+                            onCheckedChange = { enabled ->
+                                viewModel.updateDeviceLockPeriodic(
+                                    enabled,
+                                    deviceLockState.periodicUsageMinutes,
+                                    deviceLockState.periodicRestMinutes
+                                )
+                            }
+                        )
+                    }
+
+                    if (deviceLockState.isPeriodicEnabled) {
+                        Text(
+                            text = "قفل الجوال بعد كل ${deviceLockState.periodicUsageMinutes} دقيقة من الاستخدام المتواصل، لمدة ${deviceLockState.periodicRestMinutes} دقائق استراحة.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Text("مدة الاستخدام قبل القفل:", style = MaterialTheme.typography.labelLarge)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(30 to "30 دقيقة", 60 to "ساعة واحدة", 90 to "ساعة ونصف", 120 to "ساعتان").forEach { (mins, label) ->
+                                FilterChip(
+                                    selected = deviceLockState.periodicUsageMinutes == mins,
+                                    onClick = {
+                                        viewModel.updateDeviceLockPeriodic(true, mins, deviceLockState.periodicRestMinutes)
+                                    },
+                                    label = { Text(label) }
+                                )
+                            }
+                        }
+
+                        Text("مدة الاستراحة الإجبارية:", style = MaterialTheme.typography.labelLarge)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(5 to "5 دقائق", 10 to "10 دقائق", 15 to "15 دقيقة", 20 to "20 دقيقة").forEach { (mins, label) ->
+                                FilterChip(
+                                    selected = deviceLockState.periodicRestMinutes == mins,
+                                    onClick = {
+                                        viewModel.updateDeviceLockPeriodic(true, deviceLockState.periodicUsageMinutes, mins)
+                                    },
+                                    label = { Text(label) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(Icons.Default.NightsStay, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text(
+                                text = "الجدول الزمني للقفل",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                        Switch(
+                            checked = deviceLockState.isScheduleEnabled,
+                            onCheckedChange = { enabled ->
+                                viewModel.updateDeviceLockSchedule(
+                                    enabled,
+                                    deviceLockState.scheduleStartHour,
+                                    deviceLockState.scheduleStartMinute,
+                                    deviceLockState.scheduleEndHour,
+                                    deviceLockState.scheduleEndMinute
+                                )
+                            }
+                        )
+                    }
+
+                    if (deviceLockState.isScheduleEnabled) {
+                        Text(
+                            text = "قفل الجوال يومياً من الساعة ${String.format(java.util.Locale.US, "%02d:%02d", deviceLockState.scheduleStartHour, deviceLockState.scheduleStartMinute)} إلى الساعة ${String.format(java.util.Locale.US, "%02d:%02d", deviceLockState.scheduleEndHour, deviceLockState.scheduleEndMinute)}.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        var startHStr by remember(deviceLockState) { mutableStateOf(deviceLockState.scheduleStartHour.toString()) }
+                        var startMStr by remember(deviceLockState) { mutableStateOf(deviceLockState.scheduleStartMinute.toString()) }
+                        var endHStr by remember(deviceLockState) { mutableStateOf(deviceLockState.scheduleEndHour.toString()) }
+                        var endMStr by remember(deviceLockState) { mutableStateOf(deviceLockState.scheduleEndMinute.toString()) }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("وقت القفل (بداية)", style = MaterialTheme.typography.labelMedium)
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    OutlinedTextField(
+                                        value = startHStr,
+                                        onValueChange = {
+                                            startHStr = it
+                                            val h = it.toIntOrNull() ?: 0
+                                            if (h in 0..23) {
+                                                viewModel.updateDeviceLockSchedule(
+                                                    true, h, deviceLockState.scheduleStartMinute,
+                                                    deviceLockState.scheduleEndHour, deviceLockState.scheduleEndMinute
+                                                )
+                                            }
+                                        },
+                                        label = { Text("ساعة") },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    OutlinedTextField(
+                                        value = startMStr,
+                                        onValueChange = {
+                                            startMStr = it
+                                            val m = it.toIntOrNull() ?: 0
+                                            if (m in 0..59) {
+                                                viewModel.updateDeviceLockSchedule(
+                                                    true, deviceLockState.scheduleStartHour, m,
+                                                    deviceLockState.scheduleEndHour, deviceLockState.scheduleEndMinute
+                                                )
+                                            }
+                                        },
+                                        label = { Text("دقيقة") },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("وقت الفتح (نهاية)", style = MaterialTheme.typography.labelMedium)
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    OutlinedTextField(
+                                        value = endHStr,
+                                        onValueChange = {
+                                            endHStr = it
+                                            val h = it.toIntOrNull() ?: 0
+                                            if (h in 0..23) {
+                                                viewModel.updateDeviceLockSchedule(
+                                                    true, deviceLockState.scheduleStartHour, deviceLockState.scheduleStartMinute,
+                                                    h, deviceLockState.scheduleEndMinute
+                                                )
+                                            }
+                                        },
+                                        label = { Text("ساعة") },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    OutlinedTextField(
+                                        value = endMStr,
+                                        onValueChange = {
+                                            endMStr = it
+                                            val m = it.toIntOrNull() ?: 0
+                                            if (m in 0..59) {
+                                                viewModel.updateDeviceLockSchedule(
+                                                    true, deviceLockState.scheduleStartHour, deviceLockState.scheduleStartMinute,
+                                                    deviceLockState.scheduleEndHour, m
+                                                )
+                                            }
+                                        },
+                                        label = { Text("دقيقة") },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Default.Wallpaper, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Text(
+                            text = "وسائط شاشة القفل (خلفية وصوتيات)",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("صورة خلفية القفل:", style = MaterialTheme.typography.labelLarge)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (deviceLockState.imagePath != null) "🖼️ تم اختيار صورة مخصصة" else "الخلفية الافتراضية الداكنة",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    if (deviceLockState.imagePath != null) {
+                                        IconButton(onClick = { viewModel.clearDeviceLockMedia(isAudio = false) }) {
+                                            Icon(Icons.Default.Delete, contentDescription = "حذف الصورة", tint = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
+                                    OutlinedButton(onClick = { imagePickerLauncher.launch("image/*") }) {
+                                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("اختيار صورة")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("الصوت أثناء القفل:", style = MaterialTheme.typography.labelLarge)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (deviceLockState.audioPath != null) "🎵 تم اختيار مقطع صوتي مخصص" else "بدون صوت / افتراضي",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    if (deviceLockState.audioPath != null) {
+                                        IconButton(onClick = { viewModel.clearDeviceLockMedia(isAudio = true) }) {
+                                            Icon(Icons.Default.Delete, contentDescription = "حذف الصوت", tint = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
+                                    OutlinedButton(onClick = { audioPickerLauncher.launch("audio/*") }) {
+                                        Icon(Icons.Default.Audiotrack, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("اختيار صوت")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Button(
+                        onClick = {
+                            val intent = Intent(context, BlockActivity::class.java).apply {
+                                putExtra("PACKAGE_NAME", "device_lock_total")
+                                putExtra("CHALLENGE_TYPE", "DEVICE_LOCK")
+                                putExtra("LOCK_REASON", "معاينة شاشة قفل الجوال المخصصة 👁️")
+                                putExtra("REST_EXPIRY", System.currentTimeMillis() + 600_000L)
+                                putExtra("IMAGE_PATH", deviceLockState.imagePath)
+                                putExtra("AUDIO_PATH", deviceLockState.audioPath)
+                                putExtra("IS_PREVIEW", true)
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(intent)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondary
+                        )
+                    ) {
+                        Icon(Icons.Default.Visibility, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("معاينة وتجربة شاشة القفل الآن", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
     }
 }

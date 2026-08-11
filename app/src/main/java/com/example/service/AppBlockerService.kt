@@ -59,6 +59,7 @@ class AppBlockerService : AccessibilityService() {
     private var lastGeminiExplicitText = ""
     private var softLockOverlayView: android.view.View? = null
     private var currentToast: android.widget.Toast? = null
+    private lateinit var deviceLockManager: com.example.data.DeviceLockManager
     
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     
@@ -72,6 +73,9 @@ class AppBlockerService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         database = AppDatabase.getDatabase(applicationContext)
+        deviceLockManager = com.example.data.DeviceLockManager(applicationContext)
+        startDeviceLockMonitor()
+
         serviceScope.launch {
             val prefs = applicationContext.getSharedPreferences("habit_control_prefs", Context.MODE_PRIVATE)
             isAdultShieldEnabled = prefs.getBoolean("adult_shield_enabled", false)
@@ -80,6 +84,128 @@ class AppBlockerService : AccessibilityService() {
                 blockedAppsCache = it
             }
         }
+    }
+
+    private fun startDeviceLockMonitor() {
+        serviceScope.launch {
+            while (true) {
+                delay(1000)
+                try {
+                    val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+                    val isInteractive = powerManager?.isInteractive ?: true
+                    if (isInteractive) {
+                        deviceLockManager.recordUsageSecond()
+                    }
+                    checkDeviceLockConditions()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    private fun checkDeviceLockConditions() {
+        val settings = deviceLockManager.getSettings()
+        if (!settings.isMasterEnabled) return
+
+        val nowMs = System.currentTimeMillis()
+        var lockReason: String? = null
+        var restExpiry: Long = 0L
+
+        // 1. Periodic Rest
+        if (settings.periodicRestExpiry > nowMs) {
+            lockReason = "استراحة دورية للجوال ⏸️"
+            restExpiry = settings.periodicRestExpiry
+        } else if (settings.isPeriodicEnabled && settings.periodicSessionSeconds >= settings.periodicUsageMinutes * 60) {
+            val newExpiry = nowMs + (settings.periodicRestMinutes * 60 * 1000L)
+            deviceLockManager.setPeriodicRestExpiry(newExpiry)
+            deviceLockManager.resetPeriodicSession()
+            lockReason = "استراحة دورية للجوال ⏸️"
+            restExpiry = newExpiry
+        }
+
+        // 2. Daily Usage Limit
+        if (lockReason == null && settings.isDailyLimitEnabled && settings.todayUsageSeconds >= settings.dailyLimitMinutes * 60) {
+            lockReason = "تجاوزت حد الاستخدام اليومي المحدد للجوال ⏱️"
+        }
+
+        // 3. Scheduled Lock
+        if (lockReason == null && settings.isScheduleEnabled && deviceLockManager.isScheduleActiveNow(
+                settings.scheduleStartHour, settings.scheduleStartMinute,
+                settings.scheduleEndHour, settings.scheduleEndMinute
+            )) {
+            lockReason = "موعد قفل الجوال المجدول 🌙"
+        }
+
+        if (lockReason != null) {
+            launchDeviceLockActivity(lockReason, restExpiry, settings.imagePath, settings.audioPath)
+        }
+    }
+
+    private fun sendLockNotificationAndStartActivity(intent: Intent, title: String, message: String) {
+        try {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            val channelId = "habit_control_lock_channel"
+            
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = android.app.NotificationChannel(
+                    channelId,
+                    "قفل التطبيقات والجوال",
+                    android.app.NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "إشعارات القفل الفوري للتطبيقات والجوال"
+                    setBypassDnd(true)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val pendingIntent = android.app.PendingIntent.getActivity(
+                this,
+                (System.currentTimeMillis() % 10000).toInt(),
+                intent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val builder = androidx.core.app.NotificationCompat.Builder(this, channelId)
+                .setSmallIcon(android.R.drawable.ic_lock_lock)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_MAX)
+                .setCategory(androidx.core.app.NotificationCompat.CATEGORY_CALL)
+                .setFullScreenIntent(pendingIntent, true)
+                .setAutoCancel(true)
+
+            try {
+                startActivity(intent)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            
+            notificationManager.notify(1001, builder.build())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun launchDeviceLockActivity(reason: String, restExpiry: Long, imagePath: String?, audioPath: String?) {
+        try {
+            performGlobalAction(GLOBAL_ACTION_HOME)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        val intent = Intent(applicationContext, BlockActivity::class.java).apply {
+            putExtra("PACKAGE_NAME", "device_lock_total")
+            putExtra("CHALLENGE_TYPE", "DEVICE_LOCK")
+            putExtra("LOCK_REASON", reason)
+            putExtra("REST_EXPIRY", restExpiry)
+            putExtra("IMAGE_PATH", imagePath)
+            putExtra("AUDIO_PATH", audioPath)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+        }
+        sendLockNotificationAndStartActivity(intent, "🔒 قفل الجوال بالكامل", reason)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -372,12 +498,14 @@ class AppBlockerService : AccessibilityService() {
     }
 
     private fun launchBlockActivity(packageName: String, challengeType: String, challengeParam: String, allowedTimeMinutes: Int) {
-        if (packageName.startsWith("website:") || packageName == "adult_content_blocked") {
-            try {
+        try {
+            if (packageName.startsWith("website:") || packageName == "adult_content_blocked") {
                 performGlobalAction(GLOBAL_ACTION_BACK)
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } else {
+                performGlobalAction(GLOBAL_ACTION_HOME)
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
         val intent = Intent(this, BlockActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -386,7 +514,8 @@ class AppBlockerService : AccessibilityService() {
             putExtra("CHALLENGE_PARAM", challengeParam)
             putExtra("ALLOWED_TIME_MINUTES", allowedTimeMinutes)
         }
-        startActivity(intent)
+        val appLabel = if (packageName.startsWith("website:")) packageName.removePrefix("website:") else packageName
+        sendLockNotificationAndStartActivity(intent, "🚫 تطبيق محظور", "تم الوصول إلى حد استخدام $appLabel")
     }
 
     // Floating overlay UI
