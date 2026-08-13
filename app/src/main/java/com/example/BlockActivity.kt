@@ -108,9 +108,9 @@ class BlockActivity : ComponentActivity() {
                             },
                             onGoHome = {
                                 if (packageName == "adult_content_blocked" || packageName.startsWith("website:")) {
-                                    AppBlockerService.unlockApp("adult_content_blocked", 20_000L)
+                                    AppBlockerService.unlockApp("adult_content_blocked", 5_000L)
                                     if (packageName.startsWith("website:")) {
-                                        AppBlockerService.unlockApp(packageName, 20_000L)
+                                        AppBlockerService.unlockApp(packageName, 5_000L)
                                     }
                                 }
                                 val homeIntent = Intent(Intent.ACTION_MAIN).apply {
@@ -122,9 +122,9 @@ class BlockActivity : ComponentActivity() {
                             },
                             onFinish = {
                                 if (packageName == "adult_content_blocked" || packageName.startsWith("website:")) {
-                                    AppBlockerService.unlockApp("adult_content_blocked", 20_000L)
+                                    AppBlockerService.unlockApp("adult_content_blocked", 5_000L)
                                     if (packageName.startsWith("website:")) {
-                                        AppBlockerService.unlockApp(packageName, 20_000L)
+                                        AppBlockerService.unlockApp(packageName, 5_000L)
                                     }
                                 }
                                 finish()

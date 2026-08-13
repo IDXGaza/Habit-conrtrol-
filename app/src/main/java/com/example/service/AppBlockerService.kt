@@ -60,6 +60,22 @@ class AppBlockerService : AccessibilityService() {
     private var softLockOverlayView: android.view.View? = null
     private var currentToast: android.widget.Toast? = null
     private lateinit var deviceLockManager: com.example.data.DeviceLockManager
+
+    private var currentSessionPackage: String? = null
+    private var sessionStartTimeMs: Long = 0L
+    private val sessionLockedApps = mutableMapOf<String, Long>()
+    private var lastSessionSoundTimeMs = 0L
+
+    private fun playAlertSound() {
+        try {
+            val uri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+                ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
+            val ringtone = android.media.RingtoneManager.getRingtone(applicationContext, uri)
+            ringtone?.play()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
     
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     
@@ -308,6 +324,74 @@ class AppBlockerService : AccessibilityService() {
         val calendar = java.util.Calendar.getInstance()
         val currentHour = calendar.get(java.util.Calendar.HOUR_OF_DAY)
         val currentMinute = calendar.get(java.util.Calendar.MINUTE)
+
+        // Continuous session usage limit monitoring
+        if (packageName != applicationContext.packageName && !packageName.contains("launcher") && packageName != "com.android.systemui") {
+            if (currentSessionPackage != packageName) {
+                currentSessionPackage = packageName
+                sessionStartTimeMs = System.currentTimeMillis()
+            }
+
+            val sessionExpiry = sessionLockedApps[packageName]
+            if (sessionExpiry != null) {
+                if (System.currentTimeMillis() < sessionExpiry) {
+                    val appObj = blockedAppsCache.find { it.packageName == packageName }
+                    val appTitle = appObj?.appName ?: packageName
+                    val nowMs = System.currentTimeMillis()
+                    if (nowMs - lastSessionSoundTimeMs > 8000L) {
+                        if (appObj?.sessionActionType == "SOUND" || appObj?.sessionActionType == "BOTH") {
+                            playAlertSound()
+                        }
+                        lastSessionSoundTimeMs = nowMs
+                    }
+                    if (appObj?.sessionActionType == "LOCK" || appObj?.sessionActionType == "BOTH" || appObj == null) {
+                        launchBlockActivity(packageName, "BLOCK", "تم الوصول لأقصى حد استخدام متواصل ($appTitle). التطبيق مقفل للاستراحة!", 0)
+                        hideFloatingTimer()
+                        return
+                    }
+                } else {
+                    sessionLockedApps.remove(packageName)
+                }
+            }
+
+            val targetAppForSession = blockedAppsCache.find { it.packageName == packageName }
+            if (targetAppForSession != null && targetAppForSession.isSessionLimitEnabled && targetAppForSession.sessionLimitMinutes > 0) {
+                val elapsedMinutes = ((System.currentTimeMillis() - sessionStartTimeMs) / (60 * 1000L)).toInt()
+                if (elapsedMinutes >= targetAppForSession.sessionLimitMinutes) {
+                    val nowMs = System.currentTimeMillis()
+                    val action = targetAppForSession.sessionActionType
+
+                    if (action == "SOUND" || action == "BOTH") {
+                        if (nowMs - lastSessionSoundTimeMs > 8000L) {
+                            playAlertSound()
+                            lastSessionSoundTimeMs = nowMs
+                        }
+                    }
+
+                    if (action == "LOCK" || action == "BOTH") {
+                        val lockDurationMs = targetAppForSession.sessionLockMinutes * 60 * 1000L
+                        sessionLockedApps[packageName] = nowMs + lockDurationMs
+                        launchBlockActivity(
+                            packageName,
+                            "BLOCK",
+                            "تجاوزت حد الاستخدام المتواصل (${targetAppForSession.sessionLimitMinutes} دقيقة) في ${targetAppForSession.appName}! التطبيق مقفل الآن لمدة ${targetAppForSession.sessionLockMinutes} دقيقة.",
+                            0
+                        )
+                        hideFloatingTimer()
+                        return
+                    } else if (action == "SOUND") {
+                        handler.post {
+                            android.widget.Toast.makeText(
+                                applicationContext,
+                                "🔔 تنبيه: تجاوزت حد الاستخدام المتواصل (${targetAppForSession.sessionLimitMinutes} دقيقة) في ${targetAppForSession.appName}!",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        }
+                        sessionStartTimeMs = System.currentTimeMillis()
+                    }
+                }
+            }
+        }
 
         // Check for direct app block first
         val blockedApp = blockedAppsCache.find { it.packageName == packageName }

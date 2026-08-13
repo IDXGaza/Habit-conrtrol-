@@ -14,7 +14,11 @@ data class BlockedApp(
     val startHour: Int = 0,
     val startMinute: Int = 0,
     val endHour: Int = 0,
-    val endMinute: Int = 0
+    val endMinute: Int = 0,
+    val isSessionLimitEnabled: Boolean = false,
+    val sessionLimitMinutes: Int = 10,
+    val sessionLockMinutes: Int = 15,
+    val sessionActionType: String = "BOTH" // "LOCK", "SOUND", "BOTH"
 ) {
     fun isTimeBlocked(currentHour: Int, currentMinute: Int): Boolean {
         if (!isTimeScheduleEnabled) return true // Block always if schedule is disabled

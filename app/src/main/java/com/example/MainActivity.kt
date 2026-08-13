@@ -206,6 +206,74 @@ class MainActivity : ComponentActivity() {
                         ) {
                             val isAccessibilityActive = viewModel.isAccessibilityServiceEnabled(context, AppBlockerService::class.java)
                             val isOverlayActive = Settings.canDrawOverlays(context)
+                            var showRestrictedSettingsGuide by remember { mutableStateOf(false) }
+
+                            if (showRestrictedSettingsGuide) {
+                                AlertDialog(
+                                    onDismissRequest = { showRestrictedSettingsGuide = false },
+                                    title = {
+                                        Text(
+                                            text = "🔓 حل مشكلة الإعداد المحظور (أندرويد 13/14)",
+                                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                                        )
+                                    },
+                                    text = {
+                                        Column(
+                                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                                            modifier = Modifier.verticalScroll(rememberScrollState())
+                                        ) {
+                                            Text(
+                                                text = "النقاط الثلاث (⋮) لا تظهر في قائمة إمكانية الوصول، بل تظهر فقط في صفحة \"معلومات التطبيق\". اتبع الخطوات التالية للتفعيل:",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Card(
+                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier.padding(12.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Text("1️⃣ اضغط على \"فتح معلومات التطبيق\" بالأسفل.", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                                                    Text("2️⃣ في أعلى صفحة معلومات التطبيق اضغط على النقاط الثلاث (⋮) في الزاوية (أو انزل لأسفل الشاشة).", style = MaterialTheme.typography.bodySmall)
+                                                    Text("3️⃣ اختر \"السماح بالإعدادات المحظورة\" (Allow restricted settings) وأكّد بالبصمة.", style = MaterialTheme.typography.bodySmall)
+                                                    Text("4️⃣ عد إلى التطبيق واضغط على \"فتح إمكانية الوصول\" لتفعيله بنجاح.", style = MaterialTheme.typography.bodySmall)
+                                                }
+                                            }
+                                        }
+                                    },
+                                    confirmButton = {
+                                        Button(
+                                            onClick = {
+                                                try {
+                                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                        data = Uri.parse("package:${context.packageName}")
+                                                    }
+                                                    context.startActivity(intent)
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                }
+                                            }
+                                        ) {
+                                            Text("1. فتح معلومات التطبيق 📱")
+                                        }
+                                    },
+                                    dismissButton = {
+                                        OutlinedButton(
+                                            onClick = {
+                                                try {
+                                                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                }
+                                            }
+                                        ) {
+                                            Text("2. فتح إمكانية الوصول ⚙️")
+                                        }
+                                    }
+                                )
+                            }
 
                             if ((selectedTab == 0 || selectedTab == 1 || selectedTab == 3) && (!isAccessibilityActive || !isOverlayActive)) {
                                 ElevatedCard(
@@ -247,11 +315,11 @@ class MainActivity : ComponentActivity() {
                                             if (!isAccessibilityActive) {
                                                 Button(
                                                     onClick = {
-                                                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                                                        showRestrictedSettingsGuide = true
                                                     },
                                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                                                 ) {
-                                                    Text("تفعيل إمكانية الوصول ⚙️", style = MaterialTheme.typography.labelMedium)
+                                                    Text("تفعيل إمكانية الوصول / السماح ⚙️", style = MaterialTheme.typography.labelMedium)
                                                 }
                                             }
                                             if (!isOverlayActive) {
@@ -319,7 +387,7 @@ class MainActivity : ComponentActivity() {
                         ChallengeConfigDialog(
                             appName = app.name,
                             onDismiss = { selectedApp = null },
-                            onSave = { challengeType, param, timeLimit, isSchedule, startH, startM, endH, endM ->
+                            onSave = { challengeType, param, timeLimit, isSchedule, startH, startM, endH, endM, isSession, sessionLimit, sessionLock, actionType ->
                                 viewModel.addBlockedApp(
                                     BlockedApp(
                                         packageName = app.packageName,
@@ -331,7 +399,11 @@ class MainActivity : ComponentActivity() {
                                         startHour = startH,
                                         startMinute = startM,
                                         endHour = endH,
-                                        endMinute = endM
+                                        endMinute = endM,
+                                        isSessionLimitEnabled = isSession,
+                                        sessionLimitMinutes = sessionLimit,
+                                        sessionLockMinutes = sessionLock,
+                                        sessionActionType = actionType
                                     )
                                 )
                                 selectedApp = null
@@ -487,8 +559,12 @@ fun BlockedAppsTab(
                 initialStartMinute = app.startMinute,
                 initialEndHour = app.endHour,
                 initialEndMinute = app.endMinute,
+                initialIsSessionLimitEnabled = app.isSessionLimitEnabled,
+                initialSessionLimitMinutes = app.sessionLimitMinutes,
+                initialSessionLockMinutes = app.sessionLockMinutes,
+                initialSessionActionType = app.sessionActionType,
                 onDismiss = { appToEdit = null },
-                onSave = { challengeType, param, timeLimit, isSchedule, startH, startM, endH, endM ->
+                onSave = { challengeType, param, timeLimit, isSchedule, startH, startM, endH, endM, isSession, sessionLimit, sessionLock, actionType ->
                     viewModel.addBlockedApp(
                         app.copy(
                             challengeType = challengeType,
@@ -498,7 +574,11 @@ fun BlockedAppsTab(
                             startHour = startH,
                             startMinute = startM,
                             endHour = endH,
-                            endMinute = endM
+                            endMinute = endM,
+                            isSessionLimitEnabled = isSession,
+                            sessionLimitMinutes = sessionLimit,
+                            sessionLockMinutes = sessionLock,
+                            sessionActionType = actionType
                         )
                     )
                     appToEdit = null
@@ -1449,8 +1529,18 @@ fun BlockedAppItem(app: BlockedApp, onEdit: () -> Unit, onRemove: () -> Unit) {
                 } else {
                     ""
                 }
+                val sessionText = if (app.isSessionLimitEnabled) {
+                    val act = when (app.sessionActionType) {
+                        "LOCK" -> "قفل ${app.sessionLockMinutes}د"
+                        "SOUND" -> "صوت"
+                        else -> "قفل ${app.sessionLockMinutes}د + صوت"
+                    }
+                    " • حد الجلسة: ${app.sessionLimitMinutes}د ($act)"
+                } else {
+                    ""
+                }
                 Text(
-                    text = "$challengeTitle • المهلة: ${app.allowedTimeMinutes} دقيقة$scheduleText",
+                    text = "$challengeTitle • المهلة: ${app.allowedTimeMinutes} دقيقة$scheduleText$sessionText",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1552,8 +1642,12 @@ fun ChallengeConfigDialog(
     initialStartMinute: Int = 0,
     initialEndHour: Int = 0,
     initialEndMinute: Int = 0,
+    initialIsSessionLimitEnabled: Boolean = false,
+    initialSessionLimitMinutes: Int = 10,
+    initialSessionLockMinutes: Int = 15,
+    initialSessionActionType: String = "BOTH",
     onDismiss: () -> Unit,
-    onSave: (String, String, Int, Boolean, Int, Int, Int, Int) -> Unit
+    onSave: (String, String, Int, Boolean, Int, Int, Int, Int, Boolean, Int, Int, String) -> Unit
 ) {
     val context = LocalContext.current
     var selectedType by remember { mutableStateOf(initialType) }
@@ -1565,6 +1659,11 @@ fun ChallengeConfigDialog(
     var startMinuteStr by remember { mutableStateOf(if (initialIsTimeScheduleEnabled) String.format("%02d", initialStartMinute) else "") }
     var endHourStr by remember { mutableStateOf(if (initialIsTimeScheduleEnabled) String.format("%02d", initialEndHour) else "") }
     var endMinuteStr by remember { mutableStateOf(if (initialIsTimeScheduleEnabled) String.format("%02d", initialEndMinute) else "") }
+
+    var isSessionLimitEnabled by remember { mutableStateOf(initialIsSessionLimitEnabled) }
+    var sessionLimitStr by remember { mutableStateOf(if (initialIsSessionLimitEnabled) initialSessionLimitMinutes.toString() else "10") }
+    var sessionLockStr by remember { mutableStateOf(if (initialIsSessionLimitEnabled) initialSessionLockMinutes.toString() else "15") }
+    var sessionActionType by remember { mutableStateOf(initialSessionActionType) }
 
     var waitSeconds by remember {
         mutableStateOf(
@@ -1808,6 +1907,62 @@ fun ChallengeConfigDialog(
                         }
                     }
                 }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "تحديد حد الاستخدام المتواصل (الاستراحة)",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = isSessionLimitEnabled,
+                        onCheckedChange = { isSessionLimitEnabled = it }
+                    )
+                }
+
+                if (isSessionLimitEnabled) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = sessionLimitStr,
+                        onValueChange = { sessionLimitStr = it },
+                        label = { Text("أقصى مدة استخدام متواصل (بالدقائق) - مثل 10") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text("الإجراء المطلوب عند تجاوز الحد:", style = MaterialTheme.typography.labelMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        listOf("LOCK" to "قفل 🔒", "SOUND" to "صوت 🔔", "BOTH" to "قفل+صوت 🔒🔔").forEach { action ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(
+                                    selected = sessionActionType == action.first,
+                                    onClick = { sessionActionType = action.first }
+                                )
+                                Text(action.second, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+
+                    if (sessionActionType == "LOCK" || sessionActionType == "BOTH") {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = sessionLockStr,
+                            onValueChange = { sessionLockStr = it },
+                            label = { Text("مدة قفل التطبيق للاستراحة (بالدقائق) - مثل 15") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
@@ -1823,7 +1978,14 @@ fun ChallengeConfigDialog(
                 val endHour = endHourStr.toIntOrNull() ?: 0
                 val endMinute = endMinuteStr.toIntOrNull() ?: 0
 
-                onSave(selectedType, finalParam, time, isTimeScheduleEnabled, startHour, startMinute, endHour, endMinute)
+                val sessionLimit = sessionLimitStr.toIntOrNull() ?: 10
+                val sessionLock = sessionLockStr.toIntOrNull() ?: 15
+
+                onSave(
+                    selectedType, finalParam, time, isTimeScheduleEnabled,
+                    startHour, startMinute, endHour, endMinute,
+                    isSessionLimitEnabled, sessionLimit, sessionLock, sessionActionType
+                )
             }) {
                 Text("حفظ التغييرات")
             }
