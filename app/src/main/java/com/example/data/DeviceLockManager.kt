@@ -25,7 +25,8 @@ data class DeviceLockState(
     val audioPath: String? = null,
     val todayUsageSeconds: Long = 0L,
     val periodicSessionSeconds: Long = 0L,
-    val periodicRestExpiry: Long = 0L
+    val periodicRestExpiry: Long = 0L,
+    val temporaryBypassExpiry: Long = 0L
 )
 
 class DeviceLockManager(private val context: Context) {
@@ -49,12 +50,63 @@ class DeviceLockManager(private val context: Context) {
             audioPath = prefs.getString("audio_path", null),
             todayUsageSeconds = prefs.getLong("today_usage_seconds", 0L),
             periodicSessionSeconds = prefs.getLong("periodic_session_seconds", 0L),
-            periodicRestExpiry = prefs.getLong("periodic_rest_expiry", 0L)
+            periodicRestExpiry = prefs.getLong("periodic_rest_expiry", 0L),
+            temporaryBypassExpiry = prefs.getLong("temporary_bypass_expiry", 0L)
         )
     }
 
+    fun isBypassed(): Boolean {
+        val expiry = prefs.getLong("temporary_bypass_expiry", 0L)
+        return System.currentTimeMillis() < expiry
+    }
+
+    fun setTemporaryBypass(minutes: Int) {
+        val expiry = System.currentTimeMillis() + (minutes * 60 * 1000L)
+        prefs.edit()
+            .putLong("temporary_bypass_expiry", expiry)
+            .putLong("periodic_rest_expiry", 0L)
+            .apply()
+    }
+
+    fun clearTemporaryBypass() {
+        prefs.edit().remove("temporary_bypass_expiry").apply()
+    }
+
+    fun saveAllSettings(state: DeviceLockState, withGracePeriodMinutes: Int = 1) {
+        val editor = prefs.edit()
+            .putBoolean("master_enabled", state.isMasterEnabled)
+            .putBoolean("daily_enabled", state.isDailyLimitEnabled)
+            .putInt("daily_limit_minutes", state.dailyLimitMinutes)
+            .putBoolean("schedule_enabled", state.isScheduleEnabled)
+            .putInt("schedule_start_hour", state.scheduleStartHour)
+            .putInt("schedule_start_minute", state.scheduleStartMinute)
+            .putInt("schedule_end_hour", state.scheduleEndHour)
+            .putInt("schedule_end_minute", state.scheduleEndMinute)
+            .putBoolean("periodic_enabled", state.isPeriodicEnabled)
+            .putInt("periodic_usage_minutes", state.periodicUsageMinutes)
+            .putInt("periodic_rest_minutes", state.periodicRestMinutes)
+
+        if (withGracePeriodMinutes > 0) {
+            val graceExpiry = System.currentTimeMillis() + (withGracePeriodMinutes * 60 * 1000L)
+            editor.putLong("temporary_bypass_expiry", graceExpiry)
+        }
+        editor.apply()
+    }
+
     fun updateMasterEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("master_enabled", enabled).apply()
+        val editor = prefs.edit().putBoolean("master_enabled", enabled)
+        if (enabled) {
+            // Give a 1 minute grace period on enabling
+            editor.putLong("temporary_bypass_expiry", System.currentTimeMillis() + 60_000L)
+        }
+        editor.apply()
+    }
+
+    fun disableMaster() {
+        prefs.edit()
+            .putBoolean("master_enabled", false)
+            .putLong("periodic_rest_expiry", 0L)
+            .apply()
     }
 
     fun updateDailyLimit(enabled: Boolean, limitMinutes: Int) {

@@ -50,6 +50,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _deviceLockState.value = deviceLockManager.getSettings()
     }
 
+    fun saveAllDeviceLockSettings(state: com.example.data.DeviceLockState) {
+        deviceLockManager.saveAllSettings(state)
+        refreshDeviceLockState()
+    }
+
+    fun setDeviceLockBypass(minutes: Int) {
+        deviceLockManager.setTemporaryBypass(minutes)
+        refreshDeviceLockState()
+    }
+
+    fun disableDeviceLockMaster() {
+        deviceLockManager.disableMaster()
+        refreshDeviceLockState()
+    }
+
     fun updateDeviceLockMaster(enabled: Boolean) {
         deviceLockManager.updateMasterEnabled(enabled)
         refreshDeviceLockState()

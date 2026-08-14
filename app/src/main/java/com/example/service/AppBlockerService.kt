@@ -65,6 +65,7 @@ class AppBlockerService : AccessibilityService() {
     private var sessionStartTimeMs: Long = 0L
     private val sessionLockedApps = mutableMapOf<String, Long>()
     private var lastSessionSoundTimeMs = 0L
+    private var lastForegroundPackage: String? = null
 
     private fun playAlertSound() {
         try {
@@ -121,8 +122,13 @@ class AppBlockerService : AccessibilityService() {
     }
 
     private fun checkDeviceLockConditions() {
+        if (deviceLockManager.isBypassed()) return
+
         val settings = deviceLockManager.getSettings()
         if (!settings.isMasterEnabled) return
+
+        // If the user is currently inside Habit Control app, do not interrupt them
+        if (lastForegroundPackage == applicationContext.packageName) return
 
         val nowMs = System.currentTimeMillis()
         var lockReason: String? = null
@@ -228,6 +234,9 @@ class AppBlockerService : AccessibilityService() {
         if (event == null) return
 
         val packageName = event.packageName?.toString() ?: return
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            lastForegroundPackage = packageName
+        }
         if (packageName == applicationContext.packageName) return // Don't block ourselves
 
         // 1. Refresh adult content shield state on window state changes

@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.speech.tts.TextToSpeech
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -889,11 +890,17 @@ fun DeviceLockFullOverlay(
                     Text("إغلاق المعاينة", fontWeight = FontWeight.Bold)
                 }
             } else {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    OutlinedButton(
+                    // Primary Action: Emergency 15-minute Unlock
+                    Button(
                         onClick = {
+                            val mgr = com.example.data.DeviceLockManager(context)
+                            mgr.setTemporaryBypass(15)
+                            Toast.makeText(context, "تم فتح الجوال اضطرارياً لمدة 15 دقيقة ⏱️", Toast.LENGTH_LONG).show()
                             val homeIntent = Intent(Intent.ACTION_MAIN).apply {
                                 addCategory(Intent.CATEGORY_HOME)
                                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -901,28 +908,93 @@ fun DeviceLockFullOverlay(
                             context.startActivity(homeIntent)
                             onFinish()
                         },
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = Color.White
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
                         ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.6f))
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
                     ) {
-                        Icon(Icons.Default.Home, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("الرئيسية")
+                        Icon(Icons.Default.LockClock, contentDescription = null, modifier = Modifier.size(22.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "فتح الجوال اضطرارياً (15 دقيقة) ⏱️",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
                     }
 
-                    Button(
+                    // Secondary Action: Disable lock & open settings
+                    FilledTonalButton(
                         onClick = {
-                            val dialIntent = Intent(Intent.ACTION_DIAL)
-                            context.startActivity(dialIntent)
+                            val mgr = com.example.data.DeviceLockManager(context)
+                            mgr.disableMaster()
+                            Toast.makeText(context, "تم إيقاف قفل الجوال بالكامل 🛑", Toast.LENGTH_SHORT).show()
+                            val mainIntent = Intent(context, MainActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            }
+                            context.startActivity(mainIntent)
+                            onFinish()
                         },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error
-                        )
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = Color.White.copy(alpha = 0.2f),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
                     ) {
-                        Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("طوارئ")
+                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("تعطيل القفل وتعديل الإعدادات ⚙️", fontWeight = FontWeight.SemiBold)
+                    }
+
+                    // Bottom Utility Row (Home & Emergency Call)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                    addCategory(Intent.CATEGORY_HOME)
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                context.startActivity(homeIntent)
+                                onFinish()
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color.White
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                        ) {
+                            Icon(Icons.Default.Home, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("الرئيسية")
+                        }
+
+                        Button(
+                            onClick = {
+                                val dialIntent = Intent(Intent.ACTION_DIAL)
+                                context.startActivity(dialIntent)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                        ) {
+                            Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("اتصال طوارئ")
+                        }
                     }
                 }
             }

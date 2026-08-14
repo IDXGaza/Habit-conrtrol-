@@ -2034,6 +2034,146 @@ fun DeviceLockTab(viewModel: MainViewModel) {
         viewModel.refreshDeviceLockState()
     }
 
+    // Local draft state to prevent accidental instant lockout without user confirmation
+    var draftMasterEnabled by remember(deviceLockState.isMasterEnabled) { mutableStateOf(deviceLockState.isMasterEnabled) }
+    var draftDailyEnabled by remember(deviceLockState.isDailyLimitEnabled) { mutableStateOf(deviceLockState.isDailyLimitEnabled) }
+    var draftDailyMinutes by remember(deviceLockState.dailyLimitMinutes) { mutableIntStateOf(deviceLockState.dailyLimitMinutes) }
+    var draftPeriodicEnabled by remember(deviceLockState.isPeriodicEnabled) { mutableStateOf(deviceLockState.isPeriodicEnabled) }
+    var draftPeriodicUsage by remember(deviceLockState.periodicUsageMinutes) { mutableIntStateOf(deviceLockState.periodicUsageMinutes) }
+    var draftPeriodicRest by remember(deviceLockState.periodicRestMinutes) { mutableIntStateOf(deviceLockState.periodicRestMinutes) }
+    var draftScheduleEnabled by remember(deviceLockState.isScheduleEnabled) { mutableStateOf(deviceLockState.isScheduleEnabled) }
+    var draftStartH by remember(deviceLockState.scheduleStartHour) { mutableIntStateOf(deviceLockState.scheduleStartHour) }
+    var draftStartM by remember(deviceLockState.scheduleStartMinute) { mutableIntStateOf(deviceLockState.scheduleStartMinute) }
+    var draftEndH by remember(deviceLockState.scheduleEndHour) { mutableIntStateOf(deviceLockState.scheduleEndHour) }
+    var draftEndM by remember(deviceLockState.scheduleEndMinute) { mutableIntStateOf(deviceLockState.scheduleEndMinute) }
+
+    var showConfirmSaveDialog by remember { mutableStateOf(false) }
+
+    val hasUnsavedChanges = draftMasterEnabled != deviceLockState.isMasterEnabled ||
+            draftDailyEnabled != deviceLockState.isDailyLimitEnabled ||
+            draftDailyMinutes != deviceLockState.dailyLimitMinutes ||
+            draftPeriodicEnabled != deviceLockState.isPeriodicEnabled ||
+            draftPeriodicUsage != deviceLockState.periodicUsageMinutes ||
+            draftPeriodicRest != deviceLockState.periodicRestMinutes ||
+            draftScheduleEnabled != deviceLockState.isScheduleEnabled ||
+            draftStartH != deviceLockState.scheduleStartHour ||
+            draftStartM != deviceLockState.scheduleStartMinute ||
+            draftEndH != deviceLockState.scheduleEndHour ||
+            draftEndM != deviceLockState.scheduleEndMinute
+
+    val isBypassed = System.currentTimeMillis() < deviceLockState.temporaryBypassExpiry
+
+    // Confirmation & Save Dialog
+    if (showConfirmSaveDialog) {
+        val devMgr = remember { com.example.data.DeviceLockManager(context) }
+        val isScheduleActiveRightNow = draftScheduleEnabled && devMgr.isScheduleActiveNow(draftStartH, draftStartM, draftEndH, draftEndM)
+        val isDailyLimitExceeded = draftDailyEnabled && (deviceLockState.todayUsageSeconds / 60 >= draftDailyMinutes)
+
+        AlertDialog(
+            onDismissRequest = { showConfirmSaveDialog = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        if (draftMasterEnabled) Icons.Default.CheckCircle else Icons.Default.Save,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        if (draftMasterEnabled) "تأكيد إعدادات قفل الجوال" else "حفظ الإعدادات",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = if (draftMasterEnabled)
+                            "هل أنت متأكد من حفظ وتطبيق الإعدادات التالية لقفل الجوال؟"
+                        else
+                            "سيتم حفظ الإعدادات وتعطيل قفل الجوال بالكامل.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    if (draftMasterEnabled) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (draftDailyEnabled) {
+                                    Text("• الحد اليومي: ${draftDailyMinutes / 60} ساعة و ${draftDailyMinutes % 60} دقيقة", style = MaterialTheme.typography.bodySmall)
+                                }
+                                if (draftPeriodicEnabled) {
+                                    Text("• استراحة دورية: كل $draftPeriodicUsage دقيقة استراحة $draftPeriodicRest دقائق", style = MaterialTheme.typography.bodySmall)
+                                }
+                                if (draftScheduleEnabled) {
+                                    Text("• الجدول الزمني: من ${String.format(java.util.Locale.US, "%02d:%02d", draftStartH, draftStartM)} إلى ${String.format(java.util.Locale.US, "%02d:%02d", draftEndH, draftEndM)}", style = MaterialTheme.typography.bodySmall)
+                                }
+                                if (!draftDailyEnabled && !draftPeriodicEnabled && !draftScheduleEnabled) {
+                                    Text("⚠️ لم يتم تفعيل أي نوع قفل فرعي (يومي / دوري / مجدول).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+
+                        if (isScheduleActiveRightNow || isDailyLimitExceeded) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
+                                    Text(
+                                        text = "تنبيه: وفقاً للأوقات المحددة، فإن موعد القفل ينطبق على الوقت الحالي! سيتم إعطاؤك مهلة دقيقة واحدة قبل القفل.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val newState = deviceLockState.copy(
+                            isMasterEnabled = draftMasterEnabled,
+                            isDailyLimitEnabled = draftDailyEnabled,
+                            dailyLimitMinutes = draftDailyMinutes,
+                            isPeriodicEnabled = draftPeriodicEnabled,
+                            periodicUsageMinutes = draftPeriodicUsage,
+                            periodicRestMinutes = draftPeriodicRest,
+                            isScheduleEnabled = draftScheduleEnabled,
+                            scheduleStartHour = draftStartH,
+                            scheduleStartMinute = draftStartM,
+                            scheduleEndHour = draftEndH,
+                            scheduleEndMinute = draftEndM
+                        )
+                        viewModel.saveAllDeviceLockSettings(newState)
+                        showConfirmSaveDialog = false
+                        Toast.makeText(context, "✅ تم تأكيد وحفظ إعدادات قفل الجوال بنجاح!", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("تم / تأكيد وحفظ الإعدادات ✅", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showConfirmSaveDialog = false }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -2041,9 +2181,105 @@ fun DeviceLockTab(viewModel: MainViewModel) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Active Status & Emergency Actions Banner (if master is active)
+        if (deviceLockState.isMasterEnabled) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = if (isBypassed) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            if (isBypassed) Icons.Default.LockClock else Icons.Default.Shield,
+                            contentDescription = null,
+                            tint = if (isBypassed) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = if (isBypassed) "⚠️ القفل معلق مؤقتاً للطوارئ" else "🔒 قفل الجوال الشامل نَشِط",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = if (isBypassed) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.setDeviceLockBypass(15)
+                                Toast.makeText(context, "تم إيقاف القفل مؤقتاً لمدة 15 دقيقة ⏱️", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("إيقاف مؤقت 15 د ⏱️", style = MaterialTheme.typography.labelSmall)
+                        }
+
+                        Button(
+                            onClick = {
+                                draftMasterEnabled = false
+                                viewModel.disableDeviceLockMaster()
+                                Toast.makeText(context, "تم إيقاف قفل الجوال بالكامل 🛑", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("تعطيل القفل نهائياً 🛑", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Unsaved Changes Action Banner
+        if (hasUnsavedChanges) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.EditNote, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                        Text(
+                            text = "يوجد تعديلات غير محفوظة. اضغط 'تم' للتطبيق.",
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                    Button(
+                        onClick = { showConfirmSaveDialog = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Text("تم (حفظ الإعدادات) 💾", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // Master Enable Card
         Card(
             colors = CardDefaults.cardColors(
-                containerColor = if (deviceLockState.isMasterEnabled)
+                containerColor = if (draftMasterEnabled)
                     MaterialTheme.colorScheme.primaryContainer
                 else
                     MaterialTheme.colorScheme.surfaceContainer
@@ -2064,7 +2300,7 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                 ) {
                     Surface(
                         shape = CircleShape,
-                        color = if (deviceLockState.isMasterEnabled)
+                        color = if (draftMasterEnabled)
                             MaterialTheme.colorScheme.primary
                         else
                             MaterialTheme.colorScheme.outlineVariant,
@@ -2074,7 +2310,7 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                             Icon(
                                 imageVector = Icons.Default.PhonelinkLock,
                                 contentDescription = null,
-                                tint = if (deviceLockState.isMasterEnabled)
+                                tint = if (draftMasterEnabled)
                                     MaterialTheme.colorScheme.onPrimary
                                 else
                                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -2088,20 +2324,21 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = if (deviceLockState.isMasterEnabled) "مُفَعَّل - يتم مراقبة استخدام الجوال وقفله طبقاً للحدود والجداول" else "مُعَطَّل - اضغط للتفعيل الشامل",
+                            text = if (draftMasterEnabled) "مُفَعَّل (مسودة) - اضغط 'تم' بالأسفل لتأكيد التفعيل" else "مُعَطَّل - اضغط للتفعيل وضبط الإعدادات",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
                 Switch(
-                    checked = deviceLockState.isMasterEnabled,
-                    onCheckedChange = { viewModel.updateDeviceLockMaster(it) }
+                    checked = draftMasterEnabled,
+                    onCheckedChange = { draftMasterEnabled = it }
                 )
             }
         }
 
-        if (deviceLockState.isMasterEnabled) {
+        if (draftMasterEnabled) {
+            // Daily Limit Section
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -2123,22 +2360,20 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                             )
                         }
                         Switch(
-                            checked = deviceLockState.isDailyLimitEnabled,
-                            onCheckedChange = { enabled ->
-                                viewModel.updateDeviceLockDaily(enabled, deviceLockState.dailyLimitMinutes)
-                            }
+                            checked = draftDailyEnabled,
+                            onCheckedChange = { draftDailyEnabled = it }
                         )
                     }
 
-                    if (deviceLockState.isDailyLimitEnabled) {
+                    if (draftDailyEnabled) {
                         Text(
-                            text = "الحد المحدد: ${deviceLockState.dailyLimitMinutes / 60} ساعة و ${deviceLockState.dailyLimitMinutes % 60} دقيقة",
+                            text = "الحد المحدد: ${draftDailyMinutes / 60} ساعة و ${draftDailyMinutes % 60} دقيقة",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.primary
                         )
 
                         val usedMinutes = deviceLockState.todayUsageSeconds / 60
-                        val progress = (usedMinutes.toFloat() / deviceLockState.dailyLimitMinutes).coerceIn(0f, 1f)
+                        val progress = (usedMinutes.toFloat() / draftDailyMinutes).coerceIn(0f, 1f)
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -2161,8 +2396,8 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                             val options = listOf(30 to "30 د", 60 to "ساعة", 120 to "ساعتان", 180 to "3 ساعات", 240 to "4 ساعات")
                             options.forEach { (mins, label) ->
                                 FilterChip(
-                                    selected = deviceLockState.dailyLimitMinutes == mins,
-                                    onClick = { viewModel.updateDeviceLockDaily(true, mins) },
+                                    selected = draftDailyMinutes == mins,
+                                    onClick = { draftDailyMinutes = mins },
                                     label = { Text(label) }
                                 )
                             }
@@ -2171,6 +2406,7 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                 }
             }
 
+            // Periodic Rest Section
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -2192,32 +2428,24 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                             )
                         }
                         Switch(
-                            checked = deviceLockState.isPeriodicEnabled,
-                            onCheckedChange = { enabled ->
-                                viewModel.updateDeviceLockPeriodic(
-                                    enabled,
-                                    deviceLockState.periodicUsageMinutes,
-                                    deviceLockState.periodicRestMinutes
-                                )
-                            }
+                            checked = draftPeriodicEnabled,
+                            onCheckedChange = { draftPeriodicEnabled = it }
                         )
                     }
 
-                    if (deviceLockState.isPeriodicEnabled) {
+                    if (draftPeriodicEnabled) {
                         Text(
-                            text = "قفل الجوال بعد كل ${deviceLockState.periodicUsageMinutes} دقيقة من الاستخدام المتواصل، لمدة ${deviceLockState.periodicRestMinutes} دقائق استراحة.",
+                            text = "قفل الجوال بعد كل $draftPeriodicUsage دقيقة من الاستخدام المتواصل، لمدة $draftPeriodicRest دقائق استراحة.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
                         Text("مدة الاستخدام قبل القفل:", style = MaterialTheme.typography.labelLarge)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(30 to "30 دقيقة", 60 to "ساعة واحدة", 90 to "ساعة ونصف", 120 to "ساعتان").forEach { (mins, label) ->
+                            listOf(30 to "30 دقيقة", 60 to "ساعة", 90 to "ساعة ونصف", 120 to "ساعتان").forEach { (mins, label) ->
                                 FilterChip(
-                                    selected = deviceLockState.periodicUsageMinutes == mins,
-                                    onClick = {
-                                        viewModel.updateDeviceLockPeriodic(true, mins, deviceLockState.periodicRestMinutes)
-                                    },
+                                    selected = draftPeriodicUsage == mins,
+                                    onClick = { draftPeriodicUsage = mins },
                                     label = { Text(label) }
                                 )
                             }
@@ -2227,10 +2455,8 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf(5 to "5 دقائق", 10 to "10 دقائق", 15 to "15 دقيقة", 20 to "20 دقيقة").forEach { (mins, label) ->
                                 FilterChip(
-                                    selected = deviceLockState.periodicRestMinutes == mins,
-                                    onClick = {
-                                        viewModel.updateDeviceLockPeriodic(true, deviceLockState.periodicUsageMinutes, mins)
-                                    },
+                                    selected = draftPeriodicRest == mins,
+                                    onClick = { draftPeriodicRest = mins },
                                     label = { Text(label) }
                                 )
                             }
@@ -2239,6 +2465,7 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                 }
             }
 
+            // Schedule Section
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -2260,30 +2487,22 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                             )
                         }
                         Switch(
-                            checked = deviceLockState.isScheduleEnabled,
-                            onCheckedChange = { enabled ->
-                                viewModel.updateDeviceLockSchedule(
-                                    enabled,
-                                    deviceLockState.scheduleStartHour,
-                                    deviceLockState.scheduleStartMinute,
-                                    deviceLockState.scheduleEndHour,
-                                    deviceLockState.scheduleEndMinute
-                                )
-                            }
+                            checked = draftScheduleEnabled,
+                            onCheckedChange = { draftScheduleEnabled = it }
                         )
                     }
 
-                    if (deviceLockState.isScheduleEnabled) {
+                    if (draftScheduleEnabled) {
                         Text(
-                            text = "قفل الجوال يومياً من الساعة ${String.format(java.util.Locale.US, "%02d:%02d", deviceLockState.scheduleStartHour, deviceLockState.scheduleStartMinute)} إلى الساعة ${String.format(java.util.Locale.US, "%02d:%02d", deviceLockState.scheduleEndHour, deviceLockState.scheduleEndMinute)}.",
+                            text = "قفل الجوال يومياً من الساعة ${String.format(java.util.Locale.US, "%02d:%02d", draftStartH, draftStartM)} إلى الساعة ${String.format(java.util.Locale.US, "%02d:%02d", draftEndH, draftEndM)}.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.primary
                         )
 
-                        var startHStr by remember(deviceLockState) { mutableStateOf(deviceLockState.scheduleStartHour.toString()) }
-                        var startMStr by remember(deviceLockState) { mutableStateOf(deviceLockState.scheduleStartMinute.toString()) }
-                        var endHStr by remember(deviceLockState) { mutableStateOf(deviceLockState.scheduleEndHour.toString()) }
-                        var endMStr by remember(deviceLockState) { mutableStateOf(deviceLockState.scheduleEndMinute.toString()) }
+                        var startHStr by remember(draftStartH) { mutableStateOf(draftStartH.toString()) }
+                        var startMStr by remember(draftStartM) { mutableStateOf(draftStartM.toString()) }
+                        var endHStr by remember(draftEndH) { mutableStateOf(draftEndH.toString()) }
+                        var endMStr by remember(draftEndM) { mutableStateOf(draftEndM.toString()) }
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -2296,12 +2515,9 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                                         value = startHStr,
                                         onValueChange = {
                                             startHStr = it
-                                            val h = it.toIntOrNull() ?: 0
-                                            if (h in 0..23) {
-                                                viewModel.updateDeviceLockSchedule(
-                                                    true, h, deviceLockState.scheduleStartMinute,
-                                                    deviceLockState.scheduleEndHour, deviceLockState.scheduleEndMinute
-                                                )
+                                            val h = it.toIntOrNull()
+                                            if (h != null && h in 0..23) {
+                                                draftStartH = h
                                             }
                                         },
                                         label = { Text("ساعة") },
@@ -2311,12 +2527,9 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                                         value = startMStr,
                                         onValueChange = {
                                             startMStr = it
-                                            val m = it.toIntOrNull() ?: 0
-                                            if (m in 0..59) {
-                                                viewModel.updateDeviceLockSchedule(
-                                                    true, deviceLockState.scheduleStartHour, m,
-                                                    deviceLockState.scheduleEndHour, deviceLockState.scheduleEndMinute
-                                                )
+                                            val m = it.toIntOrNull()
+                                            if (m != null && m in 0..59) {
+                                                draftStartM = m
                                             }
                                         },
                                         label = { Text("دقيقة") },
@@ -2332,12 +2545,9 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                                         value = endHStr,
                                         onValueChange = {
                                             endHStr = it
-                                            val h = it.toIntOrNull() ?: 0
-                                            if (h in 0..23) {
-                                                viewModel.updateDeviceLockSchedule(
-                                                    true, deviceLockState.scheduleStartHour, deviceLockState.scheduleStartMinute,
-                                                    h, deviceLockState.scheduleEndMinute
-                                                )
+                                            val h = it.toIntOrNull()
+                                            if (h != null && h in 0..23) {
+                                                draftEndH = h
                                             }
                                         },
                                         label = { Text("ساعة") },
@@ -2347,12 +2557,9 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                                         value = endMStr,
                                         onValueChange = {
                                             endMStr = it
-                                            val m = it.toIntOrNull() ?: 0
-                                            if (m in 0..59) {
-                                                viewModel.updateDeviceLockSchedule(
-                                                    true, deviceLockState.scheduleStartHour, deviceLockState.scheduleStartMinute,
-                                                    deviceLockState.scheduleEndHour, m
-                                                )
+                                            val m = it.toIntOrNull()
+                                            if (m != null && m in 0..59) {
+                                                draftEndM = m
                                             }
                                         },
                                         label = { Text("دقيقة") },
@@ -2365,6 +2572,7 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                 }
             }
 
+            // Lock Screen Media Customization Section
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -2479,6 +2687,25 @@ fun DeviceLockTab(viewModel: MainViewModel) {
                         Text("معاينة وتجربة شاشة القفل الآن", fontWeight = FontWeight.Bold)
                     }
                 }
+            }
+
+            // Prominent bottom confirmation button
+            Button(
+                onClick = { showConfirmSaveDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Icon(Icons.Default.CheckCircle, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "تأكيد وحفظ الإعدادات (تم) 💾",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
             }
         }
     }
